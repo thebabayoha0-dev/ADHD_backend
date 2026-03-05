@@ -254,6 +254,18 @@ async def ws_endpoint(ws: WebSocket):
 def extract_features(events: pd.DataFrame, gaze: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     out: Dict[str, pd.DataFrame] = {}
 
+    # ---- utilities to tolerate minor schema drift in event logs ----
+    def _pick_time_col(df: pd.DataFrame) -> Optional[str]:
+        """Return the best guess time column name, or None."""
+        for c in ("t_ms", "t", "timestamp_ms", "ts_ms", "time_ms"):
+            if c in df.columns:
+                return c
+        return None
+
+    def _ensure_col(df: pd.DataFrame, col: str, default=np.nan) -> None:
+        if col not in df.columns:
+            df[col] = default
+
     if events.empty:
         out["prosaccade_features"] = pd.DataFrame()
         out["antisaccade_features"] = pd.DataFrame()
@@ -297,12 +309,17 @@ def extract_features(events: pd.DataFrame, gaze: pd.DataFrame) -> Dict[str, pd.D
             resp2["rt_ms"] = resp2.apply(lambda r: payload_get(r, "rt_ms", np.nan), axis=1)
             resp2["correct"] = resp2.apply(lambda r: payload_get(r, "correct", np.nan), axis=1)
 
+            # tolerate different time column names in target events
+            tcol = _pick_time_col(pros_tgt)
+            if tcol and tcol != "target_on_t_ms":
+                pros_tgt = pros_tgt.rename(columns={tcol: "target_on_t_ms"})
+            _ensure_col(pros_tgt, "target_on_t_ms", np.nan)
+
             m = pros_tgt.merge(resp2[["trial_id", "rt_ms", "correct"]], on="trial_id", how="left")
             m["side"] = m.apply(lambda r: payload_get(r, "side", ""), axis=1)
             m["isTarget"] = m.apply(lambda r: payload_get(r, "isTarget", ""), axis=1)
             out["prosaccade_features"] = (
-                m[["trial_id", "t_ms", "side", "isTarget", "rt_ms", "correct"]]
-                .rename(columns={"t_ms": "target_on_t_ms"})
+                m[["trial_id", "target_on_t_ms", "side", "isTarget", "rt_ms", "correct"]]
                 .reset_index(drop=True)
             )
         else:
@@ -330,9 +347,17 @@ def extract_features(events: pd.DataFrame, gaze: pd.DataFrame) -> Dict[str, pd.D
             resp3["rt_ms"] = resp3.apply(lambda r: payload_get(r, "rt_ms", np.nan), axis=1)
             resp3["correct"] = resp3.apply(lambda r: payload_get(r, "correct", np.nan), axis=1)
 
-            m = cue3.merge(tgt3[["trial_id", "t_ms", "target_side"]], on="trial_id", how="left", suffixes=("_cue", "_target"))
+            # tolerate different time column names in target events
+            tcol = _pick_time_col(tgt3)
+            if tcol:
+                tgt3_small = tgt3[["trial_id", tcol, "target_side"]].rename(columns={tcol: "target_on_t_ms"})
+            else:
+                tgt3_small = tgt3[["trial_id", "target_side"]].copy()
+                tgt3_small["target_on_t_ms"] = np.nan
+
+            m = cue3.merge(tgt3_small[["trial_id", "target_side", "target_on_t_ms"]], on="trial_id", how="left")
             m = m.merge(resp3[["trial_id", "rt_ms", "correct"]], on="trial_id", how="left")
-            m = m.rename(columns={"t_ms": "target_on_t_ms"})
+            _ensure_col(m, "target_on_t_ms", np.nan)
             out["antisaccade_features"] = m[["trial_id", "cue_side", "target_side", "target_on_t_ms", "rt_ms", "correct"]].reset_index(drop=True)
         else:
             out["antisaccade_features"] = pd.DataFrame(columns=["trial_id", "cue_side", "target_side", "target_on_t_ms", "rt_ms", "correct"])
