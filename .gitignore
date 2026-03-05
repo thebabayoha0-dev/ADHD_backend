@@ -83,7 +83,7 @@ prisma/dev.db-journal
 *.temp
 
 # session data
-# data/
+data/
 
 # videos
 *.webm
