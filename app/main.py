@@ -95,12 +95,17 @@ async def upload_video(session_id: str, file: UploadFile = File(...)):
     if not s:
         raise HTTPException(404, "Unknown session")
 
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(400, "Uploaded video is empty")
+
     out_path = os.path.join(_session_dir(session_id), "webcam.webm")
     with open(out_path, "wb") as f:
-        f.write(await file.read())
+        f.write(payload)
 
     s.video_path = out_path
-    return {"ok": True}
+    log.info("Saved webcam video for session %s (%d bytes)", session_id, len(payload))
+    return {"ok": True, "bytes": len(payload)}
 
 @app.get("/session/{session_id}/download_zip")
 async def download_zip(session_id: str):
