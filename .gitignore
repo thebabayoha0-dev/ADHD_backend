@@ -27,7 +27,6 @@ ENV/
 # Python Distribution
 # ==============================
 build/
-dist/
 *.egg-info/
 .eggs/
 
